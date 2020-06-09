@@ -1,0 +1,120 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1671\cocoasubrtf600
+{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww10800\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 ## add gender and occupation covariates to CV model\
+\
+# install.packages("devtools")\
+# library(devtools)\
+# install_github("rmcelreath/rethinking",ref="Experimental")\
+library(rethinking)\
+\
+# load data into R\
+d1 <- read.csv("RiskData.csv" , stringsAsFactors=FALSE )\
+d2 <- read.csv("income_data.csv" , stringsAsFactors=FALSE )\
+\
+# fix NA in Time to Market dummy\
+if ( is.na(d1$TimeToMkt_Recode[39]) ) d1$TimeToMkt_Recode[39] <- 0\
+\
+# prep income data\
+d2 <- d2[complete.cases(d2$Profit,d2$Occupation),]\
+d2$profit_std <- d2$Profit / sd(d2$Profit)\
+\
+# build common individual ID index\
+IDlist <- coerce_index( d2$Individual , d2$Spouse.ID , d1$Wife.ID , d1$Hus.ID )\
+\
+# estimate mu and CV, instead of mu and sigma\
+# CV = sd/mu\
+# sd = CV*mu\
+CVmodel_alt <- alist(\
+        income ~ dnorm( mui , sigmai ),\
+        log(sigmai) <- 0 + (cv_mu + cv_id[id] + fem_cv*female + sell_cv*job_sell) + log(mui) ,\
+        log(mui) <- 0 + mu + mu_id[id],\
+        #log(cvi) <- 0 + cv_mu + cv_id[id],\
+        c(mu_id,cv_id)[id] ~ dmvnormNC(Sigma,Rho),\
+        mu ~ dnorm(0,1),\
+        cv_mu ~ dnorm(1,2),\
+        Rho ~ dlkjcorr(2),\
+        Sigma ~ dexp(1),\
+        fem_cv ~ dnorm(0,1),\
+        sell_cv ~ dnorm(0,1)\
+    )\
+\
+##########\
+# wife fishing AND selling model\
+\
+# August 2019 covariate set\
+wifesellCV4 <- alist(\
+        WifeSellDummy ~ dbinom(1,p_sell),\
+        logit(p_sell) <- a_sell + \
+                b_distMEG_sell * DistMeg_Recode + \
+                b_timeMKT_sell * TimeToMkt_Recode +\
+                b_StillBF * StillBF +\
+                b_AlloP * AlloP +\
+                b_Father * Father +\
+                b_HusCV_sell*exp(cv_mu + cv_id[husband_id]),\
+        a_sell ~ dnorm(0,10),\
+        b_distMEG_sell ~ dnorm(0,1),\
+        b_timeMKT_sell ~ dnorm(0,1),\
+        b_StillBF ~ dnorm(0,1),\
+        b_AlloP ~ dnorm(0,1),\
+        b_Father ~ dnorm(0,1),\
+        b_HusCV_sell ~ dnorm(0,1)\
+    )\
+\
+f_full <- unlist( list(wifesellCV4, CVmodel_alt) , recursive=FALSE )\
+\
+dat_list_CV <- list(\
+    id = IDlist[[1]], # individual's own ID (not spouse's)\
+    income = d2$profit_std,\
+    job_sell = ifelse( d2$Occupation==2 , 1 , 0 ),\
+    female = d2$Female.Dummy,\
+    N_id = 137 # have to manually specify 137 individuals, as only 111 in these data, but want parameters for all, even when no income data for them (get prior then)\
+)\
+\
+wife_dat <- list(\
+        DistMeg_Recode = d1$DistMeg_Recode,\
+        TimeToMkt_Recode = d1$TimeToMkt_Recode,\
+        husband_id = IDlist[[4]],\
+        StillBF = d1$Still_BF_dum,\
+        AlloP = d1$AVAIL_AP_NUM,\
+        Father = d1$HusFishHalflYrDum\
+    )\
+\
+d3 <- unlist( list(wife_dat,dat_list_CV) , recursive=FALSE )\
+d3$WifeSellDummy = d1$WifeSellDummy\
+\
+# flip TimeToMkt_Recode\
+d3$TimeToMkt_Recode <- 1 - d3$TimeToMkt_Recode\
+\
+# finally run models\
+fabs <- function(x) abs(x)\
+\
+set.seed(26234)\
+m_wifesellCV <- map2stan(\
+    f_full,\
+    data=d3,\
+    control=list(adapt_delta=0.95,max_treedepth=13),\
+    start=list( mu=0.5 , cv_mu=5 ),\
+    sample=TRUE , iter=2000 , chains=4 , cores=3 )\
+\
+precis(m_wifesellCV)\
+\
+#2. New figure with variable names:\
+#Distance to Meghna\
+#Time to Market\
+#Currently Breastfeeding\
+#Number of Alloparents\
+#Father Stays Home\
+#Husband's Coeff of Var\
+\
+xpars <- c("b_distMEG_sell","b_timeMKT_sell","b_StillBF","b_AlloP","b_Father","b_HusCV_sell")\
+xlabels <- c("Distance to Meghna","Time to Market","Currently Breastfeeding","Number of Alloparents","Father Stays Home","Husband's Coeff of Var")\
+plot( precis(m_wifesellCV,pars=xpars) , labels=xlabels )\
+# mtext( "Posterior means and 89% compatibility intervals" )\
+\
+\
+}

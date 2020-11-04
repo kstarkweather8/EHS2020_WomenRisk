@@ -15,7 +15,7 @@ d2 <- d2[complete.cases(d2$Profit,d2$Occupation),]
 d2$profit_std <- d2$Profit / sd(d2$Profit)
 
 # build common individual ID index
-IDlist <- coerce_index( d2$Individual , d2$Spouse.ID , d1$Wife.ID , d1$Hus.ID )
+IDlist <- coerce_index( d2$IndividualID , d2$SpouseID , d1$Wife.ID , d1$Hus.ID )
 
 # estimate mu and CV, instead of mu and sigma
 # CV = sd/mu
@@ -71,8 +71,8 @@ wife_dat <- list(
         TimeToMkt_Recode = d1$TimeToMkt_Recode,
         husband_id = IDlist[[4]],
         StillBF = d1$Still_BF_dum,
-        AlloP = d1$AVAIL_AP_NUM,
-        Father = d1$HusFishHalflYrDum
+        AlloP = d1$AlloP,
+        Father = d1$Father
     )
 
 d3 <- unlist( list(wife_dat,dat_list_CV) , recursive=FALSE )
